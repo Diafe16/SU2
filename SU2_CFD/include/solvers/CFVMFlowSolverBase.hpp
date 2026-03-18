@@ -911,7 +911,7 @@ class CFVMFlowSolverBase : public CSolver {
   template<class DiagonalPrecond>
   void PrepareImplicitIteration_impl(DiagonalPrecond& preconditioner, CGeometry *geometry, CConfig *config) {
 
-    const bool implicit = (config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT);
+    const bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
     /*--- Local residual variables for current thread ---*/
     su2double resMax[MAXNVAR] = {0.0}, resRMS[MAXNVAR] = {0.0};

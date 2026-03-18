@@ -546,6 +546,8 @@ private:
   Kind_TimeStep_Heat,           /*!< \brief Time stepping method for the (fvm) heat equation. */
   n_Datadriven_files;
 
+  ENUM_SEMI_IMPLICIT_STAGE SemiImplicitStage;   /*!< \brief Runtime stage for split semi-implicit flow integration. */
+
   DataDrivenFluid_ParsedOptions datadriven_ParsedOptions; /*!< \brief Options for data-driven fluid analysis. */
 
   STRUCT_TIME_INT Kind_TimeIntScheme_FEA;    /*!< \brief Time integration for the FEA equations. */
@@ -2477,6 +2479,17 @@ public:
    * \param[in] val_kind_timeintscheme - Kind of time integration scheme.
    */
   void SetKind_TimeIntScheme(unsigned short val_kind_timeintscheme) { Kind_TimeNumScheme = val_kind_timeintscheme; }
+
+  /*!
+   * \brief Set/get the pseudo-time stage used by the split SEMI_IMPLICIT integration.
+   */
+  void SetSemiImplicitStage(ENUM_SEMI_IMPLICIT_STAGE val_stage) { SemiImplicitStage = val_stage; }
+  ENUM_SEMI_IMPLICIT_STAGE GetSemiImplicitStage(void) const { return SemiImplicitStage; }
+
+  /*!
+   * \brief Return whether flow equations use the SEMI_IMPLICIT integration mode.
+   */
+  bool GetFlowSemiImplicit(void) const { return Kind_TimeIntScheme_Flow == SEMI_IMPLICIT; }
 
   /*!
    * \brief Set the parameters of the convective numerical scheme.

@@ -43,11 +43,26 @@ void CIntegration::Space_Integration(CGeometry *geometry,
   unsigned short iMarker, KindBC;
 
   unsigned short MainSolver = config->GetContainerPosition(RunTime_EqSystem);
+
+  const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(config->GetSemiImplicitStage());
+  const bool split_mode = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config->GetFlowSemiImplicit() &&
+                          (config->GetKind_FluidModel() == MUTATIONPP) && (split_stage != SPLIT_STAGE_NONE);
+
+  const bool chem_vib_stage   = split_mode && (split_stage == SPLIT_STAGE_CHEM_VIB);
+  const bool transport_stage  = split_mode && (split_stage == SPLIT_STAGE_TRANSPORT);
+
+  const bool do_convective = (!split_mode) || transport_stage;
+  const bool do_viscous = (!split_mode) || transport_stage;
+  const bool do_sources = (!split_mode) || chem_vib_stage;
+  const bool do_dual_time = (!split_mode) || chem_vib_stage;
+  const bool do_transport_bcs = (!split_mode) || transport_stage;
+
   bool dual_time = ((config->GetTime_Marching() == TIME_MARCHING::DT_STEPPING_1ST) ||
                     (config->GetTime_Marching() == TIME_MARCHING::DT_STEPPING_2ND));
 
   /*--- Compute inviscid residuals ---*/
 
+  if (do_convective) {
   switch (config->GetKind_ConvNumScheme()) {
     case SPACE_CENTERED:
       solver_container[MainSolver]->Centered_Residual(geometry, solver_container, numerics, config, iMesh, iRKStep);
@@ -56,16 +71,21 @@ void CIntegration::Space_Integration(CGeometry *geometry,
       solver_container[MainSolver]->Upwind_Residual(geometry, solver_container, numerics, config, iMesh);
       break;
   }
+  }
 
   /*--- Compute viscous residuals ---*/
-  solver_container[MainSolver]->Viscous_Residual(geometry, solver_container, numerics, config, iMesh, iRKStep);
+  if (do_viscous) {
+    solver_container[MainSolver]->Viscous_Residual(geometry, solver_container, numerics, config, iMesh, iRKStep);
+  }
 
   /*--- Compute source term residuals ---*/
-  solver_container[MainSolver]->Source_Residual(geometry, solver_container, numerics, config, iMesh);
+  if (do_sources) {
+    solver_container[MainSolver]->Source_Residual(geometry, solver_container, numerics, config, iMesh);
+  }
 
   /*--- Add viscous and convective residuals, and compute the Dual Time Source term ---*/
 
-  if (dual_time)
+  if (dual_time && do_dual_time)
     solver_container[MainSolver]->SetResidual_DualTime(geometry, solver_container, config, iRKStep, iMesh, RunTime_EqSystem);
 
   /*--- Pick convective and viscous numerics objects for the current thread. ---*/
@@ -77,126 +97,119 @@ void CIntegration::Space_Integration(CGeometry *geometry,
   /// TODO: Check if this is really needed.
   //const auto pausePreacc = (omp_get_num_threads() > 1) && AD::PausePreaccumulation();
 
-  /*--- Boundary conditions that depend on other boundaries (they require MPI sincronization)---*/
+  if (do_transport_bcs) {
 
-  solver_container[MainSolver]->BC_Fluid_Interface(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config);
+    /*--- Boundary conditions that depend on other boundaries (they require MPI synchronization). ---*/
+    solver_container[MainSolver]->BC_Fluid_Interface(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config);
 
-  /*--- Compute Fourier Transformations for markers where NRBC_BOUNDARY is applied---*/
-
-  if (config->GetBoolGiles() && config->GetSpatialFourier()){
-    solver_container[MainSolver]->PreprocessBC_Giles(geometry, config, conv_bound_numerics, INFLOW);
-
-    solver_container[MainSolver]->PreprocessBC_Giles(geometry, config, conv_bound_numerics, OUTFLOW);
-  }
-
-  BEGIN_SU2_OMP_SAFE_GLOBAL_ACCESS {
-    if (config->GetBoolTurbomachinery()){
-        /*--- Average quantities at the inflow and outflow boundaries ---*/
-      solver_container[MainSolver]->TurboAverageProcess(solver_container, geometry,config,INFLOW);
-      solver_container[MainSolver]->TurboAverageProcess(solver_container, geometry, config, OUTFLOW);
+    /*--- Compute Fourier Transformations for markers where NRBC_BOUNDARY is applied. ---*/
+    if (config->GetBoolGiles() && config->GetSpatialFourier()) {
+      solver_container[MainSolver]->PreprocessBC_Giles(geometry, config, conv_bound_numerics, INFLOW);
+      solver_container[MainSolver]->PreprocessBC_Giles(geometry, config, conv_bound_numerics, OUTFLOW);
     }
-  }
-  END_SU2_OMP_SAFE_GLOBAL_ACCESS
 
-  /*--- Weak boundary conditions ---*/
-
-  for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
-    KindBC = config->GetMarker_All_KindBC(iMarker);
-    switch (KindBC) {
-      case ACTDISK_INLET:
-        solver_container[MainSolver]->BC_ActDisk_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case ENGINE_INFLOW:
-        solver_container[MainSolver]->BC_Engine_Inflow(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case INLET_FLOW:
-        solver_container[MainSolver]->BC_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case ACTDISK_OUTLET:
-        solver_container[MainSolver]->BC_ActDisk_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case ENGINE_EXHAUST:
-        solver_container[MainSolver]->BC_Engine_Exhaust(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case SUPERSONIC_INLET:
-        solver_container[MainSolver]->BC_Supersonic_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case OUTLET_FLOW:
-        solver_container[MainSolver]->BC_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case SUPERSONIC_OUTLET:
-        solver_container[MainSolver]->BC_Supersonic_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case GILES_BOUNDARY:
-        solver_container[MainSolver]->BC_Giles(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case RIEMANN_BOUNDARY:
-        if (config->GetBoolTurbomachinery()){
-          solver_container[MainSolver]->BC_TurboRiemann(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        }
-        else{
-          solver_container[MainSolver]->BC_Riemann(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        }
-        break;
-      case FAR_FIELD:
-        solver_container[MainSolver]->BC_Far_Field(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
+    BEGIN_SU2_OMP_SAFE_GLOBAL_ACCESS {
+      if (config->GetBoolTurbomachinery()){
+          /*--- Average quantities at the inflow and outflow boundaries. ---*/
+        solver_container[MainSolver]->TurboAverageProcess(solver_container, geometry,config,INFLOW);
+        solver_container[MainSolver]->TurboAverageProcess(solver_container, geometry, config, OUTFLOW);
+      }
     }
-  }
+    END_SU2_OMP_SAFE_GLOBAL_ACCESS
 
-  /*--- Modification of the system on the whole domain, like for a strong BC. ---*/
-  solver_container[MainSolver]->Impose_Fixed_Values(geometry, config);
+    /*--- Weak boundary conditions. ---*/
+    for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
+      KindBC = config->GetMarker_All_KindBC(iMarker);
+      switch (KindBC) {
+        case ACTDISK_INLET:
+          solver_container[MainSolver]->BC_ActDisk_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case ENGINE_INFLOW:
+          solver_container[MainSolver]->BC_Engine_Inflow(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case INLET_FLOW:
+          solver_container[MainSolver]->BC_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case ACTDISK_OUTLET:
+          solver_container[MainSolver]->BC_ActDisk_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case ENGINE_EXHAUST:
+          solver_container[MainSolver]->BC_Engine_Exhaust(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case SUPERSONIC_INLET:
+          solver_container[MainSolver]->BC_Supersonic_Inlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case OUTLET_FLOW:
+          solver_container[MainSolver]->BC_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case SUPERSONIC_OUTLET:
+          solver_container[MainSolver]->BC_Supersonic_Outlet(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case GILES_BOUNDARY:
+          solver_container[MainSolver]->BC_Giles(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case RIEMANN_BOUNDARY:
+          if (config->GetBoolTurbomachinery()) {
+            solver_container[MainSolver]->BC_TurboRiemann(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          } else {
+            solver_container[MainSolver]->BC_Riemann(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          }
+          break;
+        case FAR_FIELD:
+          solver_container[MainSolver]->BC_Far_Field(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+      }
+    }
 
-  /*--- Strong boundary conditions (Navier-Stokes and Dirichlet type BCs) ---*/
+    /*--- Modification of the system on the whole domain, like for a strong BC. ---*/
+    solver_container[MainSolver]->Impose_Fixed_Values(geometry, config);
 
-  for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++)
-    switch (config->GetMarker_All_KindBC(iMarker)) {
-      case ISOTHERMAL:
-        solver_container[MainSolver]->BC_Isothermal_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case HEAT_FLUX:
-        solver_container[MainSolver]->BC_HeatFlux_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case HEAT_TRANSFER:
-        solver_container[MainSolver]->BC_HeatTransfer_Wall(geometry, config, iMarker);
-        break;
-      case CUSTOM_BOUNDARY:
-        solver_container[MainSolver]->BC_Custom(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
-      case CHT_WALL_INTERFACE:
-
-        if ((MainSolver == FLOW_SOL && (config->GetKind_FluidModel() == FLUID_FLAMELET)) ||
-            (MainSolver == SPECIES_SOL) || (MainSolver == HEAT_SOL) ||
-            ((MainSolver == FLOW_SOL) &&
-             ((config->GetKind_Regime() == ENUM_REGIME::COMPRESSIBLE) || config->GetEnergy_Equation()))) {
-          solver_container[MainSolver]->BC_ConjugateHeat_Interface(geometry, solver_container, conv_bound_numerics,
-                                                                   config, iMarker);
-        } else {
+    /*--- Strong boundary conditions (Navier-Stokes and Dirichlet type BCs). ---*/
+    for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
+      switch (config->GetMarker_All_KindBC(iMarker)) {
+        case ISOTHERMAL:
+          solver_container[MainSolver]->BC_Isothermal_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case HEAT_FLUX:
           solver_container[MainSolver]->BC_HeatFlux_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        }
-        break;
-      case SMOLUCHOWSKI_MAXWELL:
-        solver_container[MainSolver]->BC_Smoluchowski_Maxwell(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-        break;
+          break;
+        case HEAT_TRANSFER:
+          solver_container[MainSolver]->BC_HeatTransfer_Wall(geometry, config, iMarker);
+          break;
+        case CUSTOM_BOUNDARY:
+          solver_container[MainSolver]->BC_Custom(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+        case CHT_WALL_INTERFACE:
+          if ((MainSolver == FLOW_SOL && (config->GetKind_FluidModel() == FLUID_FLAMELET)) ||
+              (MainSolver == SPECIES_SOL) || (MainSolver == HEAT_SOL) ||
+              ((MainSolver == FLOW_SOL) &&
+               ((config->GetKind_Regime() == ENUM_REGIME::COMPRESSIBLE) || config->GetEnergy_Equation()))) {
+            solver_container[MainSolver]->BC_ConjugateHeat_Interface(geometry, solver_container, conv_bound_numerics,
+                                                                     config, iMarker);
+          } else {
+            solver_container[MainSolver]->BC_HeatFlux_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          }
+          break;
+        case SMOLUCHOWSKI_MAXWELL:
+          solver_container[MainSolver]->BC_Smoluchowski_Maxwell(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+          break;
+      }
     }
 
-  /*--- Complete residuals for periodic boundary conditions. We loop over
-   the periodic BCs in matching pairs so that, in the event that there are
-   adjacent periodic markers, the repeated points will have their residuals
-   accumulated correctly during the communications. ---*/
+    /*--- Complete residuals for periodic boundary conditions. ---*/
+    if (config->GetnMarker_Periodic() > 0) {
+      solver_container[MainSolver]->BC_Periodic(geometry, solver_container, conv_bound_numerics, config);
+    }
 
-  if (config->GetnMarker_Periodic() > 0) {
-    solver_container[MainSolver]->BC_Periodic(geometry, solver_container, conv_bound_numerics, config);
-  }
-
-
-  for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
-    if (config->GetMarker_All_KindBC(iMarker)==SYMMETRY_PLANE)
+    for (iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
+      if (config->GetMarker_All_KindBC(iMarker) == SYMMETRY_PLANE) {
         solver_container[MainSolver]->BC_Sym_Plane(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
-    else if (config->GetMarker_All_KindBC(iMarker)==EULER_WALL)
+      } else if (config->GetMarker_All_KindBC(iMarker) == EULER_WALL) {
         solver_container[MainSolver]->BC_Euler_Wall(geometry, solver_container, conv_bound_numerics, visc_bound_numerics, config, iMarker);
+      }
+    }
   }
-  //AD::ResumePreaccumulation(pausePreacc);
+  // AD::ResumePreaccumulation(pausePreacc);
 
 }
 
@@ -217,6 +230,9 @@ void CIntegration::Time_Integration(CGeometry *geometry, CSolver **solver_contai
       break;
     case (EULER_IMPLICIT):
       solver_container[MainSolver]->ImplicitEuler_Iteration(geometry, solver_container, config);
+      break;
+    case (SEMI_IMPLICIT):
+      SU2_MPI::Error("SEMI_IMPLICIT must be executed through the split-stage integration flow.", CURRENT_FUNCTION);
       break;
   }
 

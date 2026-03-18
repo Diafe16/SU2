@@ -139,8 +139,19 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
   CConfig* config = config_container[iZone];
 
   const unsigned short Solver_Position = config->GetContainerPosition(RunTime_EqSystem);
+
+  /* Runtime flag for the split SEMI_IMPLICIT mode. */
+  const auto TimeIntScheme_Orig = static_cast<ENUM_TIME_INT>(config->GetKind_TimeIntScheme());
+  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config->GetFlowSemiImplicit() &&
+                                  (config->GetKind_FluidModel() == MUTATIONPP);
   const bool classical_rk4 = (config->GetKind_TimeIntScheme() == CLASSICAL_RK4_EXPLICIT);
-  const bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
+  
+  /* Use implicit pre/post multigrid handling for both EULER_IMPLICIT and SEMI_IMPLICIT. */
+  const bool implicit = (TimeIntScheme_Orig == EULER_IMPLICIT) || (TimeIntScheme_Orig == SEMI_IMPLICIT);
+
+  if (semi_implicit_flow) {
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_NONE);)
+  }
 
   /*--- Shorter names to refer to fine grid entities. ---*/
 
@@ -162,6 +173,7 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
       break;
     case EULER_EXPLICIT:
     case EULER_IMPLICIT:
+    case SEMI_IMPLICIT:
       iRKLimit = 1;
       break;
   }
@@ -174,44 +186,99 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
 
     for (unsigned short iRKStep = 0; iRKStep < iRKLimit; iRKStep++) {
 
-      /*--- Send-Receive boundary conditions, and preprocessing ---*/
+      if (!semi_implicit_flow) {
+
+        /*--- Send-Receive boundary conditions, and preprocessing ---*/
+
+        solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem,
+                                   false);
+
+        if (iRKStep == 0) {
+
+          /*--- Set the old solution ---*/
+
+          solver_fine->Set_OldSolution();
+
+          if (classical_rk4) solver_fine->Set_NewSolution();
+
+          /*--- Compute time step, max eigenvalue, and integration scheme (steady and unsteady problems) ---*/
+
+          solver_fine->SetTime_Step(geometry_fine, solver_container_fine, config, iMesh, config->GetTimeIter());
+
+          /*--- Restrict the solution and gradient for the adjoint problem ---*/
+
+          Adjoint_Setup(geometry, solver_container, config_container, RunTime_EqSystem, config->GetTimeIter(), iZone);
+        }
+
+        /*--- Space integration ---*/
+
+        Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep,
+                          RunTime_EqSystem);
+
+        /*--- Time integration, update solution using the old solution plus the solution increment ---*/
+
+        Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
+
+        /*--- Send-Receive boundary conditions, and postprocessing ---*/
+
+        solver_fine->Postprocessing(geometry_fine, solver_container_fine, config, iMesh);
+
+        continue;
+      }
+
+      /*========================== SEMI_IMPLICIT split mode ==========================*/
+      /*Stadio A: chimica/vib implicito -> U*  
+        Stadio B: conv/diff esplicito su U* -> U^{k+1} */
+
+      /*--- Stadio A: chem/vib ---*/
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_CHEM_VIB);)
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_IMPLICIT);)
 
       solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem, false);
 
-
       if (iRKStep == 0) {
-
-        /*--- Set the old solution ---*/
-
+        /* La soluzione "old" va salvata una sola volta all'inizio del time-step composito */
         solver_fine->Set_OldSolution();
 
+        /* In SEMI_IMPLICIT iRKLimit=1, quindi RK4 non dovrebbe entrare qui */
         if (classical_rk4) solver_fine->Set_NewSolution();
-
-        /*--- Compute time step, max eigenvalue, and integration scheme (steady and unsteady problems) ---*/
 
         solver_fine->SetTime_Step(geometry_fine, solver_container_fine, config, iMesh, config->GetTimeIter());
 
-        /*--- Restrict the solution and gradient for the adjoint problem ---*/
-
         Adjoint_Setup(geometry, solver_container, config_container, RunTime_EqSystem, config->GetTimeIter(), iZone);
-
       }
 
-      /*--- Space integration ---*/
-
+      /* Space_Integration deve essere stage-aware: qui calcola solo chem+vib */
       Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep, RunTime_EqSystem);
 
-      /*--- Time integration, update solution using the old solution plus the solution increment ---*/
-
+      /* Time_Integration con EULER_IMPLICIT -> produce U* */
       Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
 
-      /*--- Send-Receive boundary conditions, and postprocessing ---*/
+      /* Richiesta tua: riuso della stessa matrice dei residui */
+      solver_fine->LinSysRes.SetValZero();
 
+      /*--- Stadio B: transport (conv/diff) usando U* ---*/
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_TRANSPORT);)
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_EXPLICIT);)
+
+      /* IMPORTANTISSIMO: questa Preprocessing ricalcola primitive/gradienti su U* */
+      solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem, false);
+
+      /* Space_Integration deve essere stage-aware: qui calcola solo conv/diff (e BC coerenti) */
+      Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep, RunTime_EqSystem);
+
+      /* Time_Integration con EULER_EXPLICIT -> produce soluzione finale */
+      Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
+
+      /* Ripristino stato runtime */
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_NONE);)
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(SEMI_IMPLICIT);)
+
+      /* Postprocessing una sola volta, sulla soluzione finale */
       solver_fine->Postprocessing(geometry_fine, solver_container_fine, config, iMesh);
-
     }
-
   }
+
 
   /*--- Compute Forcing Term $P_(k+1) = I^(k+1)_k(P_k+F_k(u_k))-F_(k+1)(I^(k+1)_k u_k)$ and update solution for multigrid ---*/
 
@@ -225,6 +292,8 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
     CNumerics** numerics_coarse = numerics_container[iZone][iInst][iMesh+1][Solver_Position];
 
     /*--- Temporarily disable implicit integration, for what follows we do not need the Jacobian. ---*/
+
+    const auto SavedTimeScheme = static_cast<ENUM_TIME_INT>(config->GetKind_TimeIntScheme());
 
     if (implicit) {
       SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_EXPLICIT);)
@@ -253,7 +322,7 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
     /*--- Restore the time integration settings. ---*/
 
     if (implicit) {
-      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_IMPLICIT);)
+      SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(SavedTimeScheme);)
     }
 
     /*--- Recursive call to MultiGrid_Cycle (this routine). ---*/
@@ -276,33 +345,91 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
 
     SetProlongated_Correction(solver_fine, geometry_fine, config, iMesh);
 
-
     /*--- Solution post-smoothing in the prolongated grid. ---*/
 
     for (unsigned short iPostSmooth = 0; iPostSmooth < config->GetMG_PostSmooth(iMesh); iPostSmooth++) {
 
       for (unsigned short iRKStep = 0; iRKStep < iRKLimit; iRKStep++) {
+        
+        if (!semi_implicit_flow) {
+          
+          solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem,
+                                     false);
 
-        solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem, false);
+          if (iRKStep == 0) {
+          
+            solver_fine->Set_OldSolution();
+
+            if (classical_rk4) solver_fine->Set_NewSolution();
+
+            solver_fine->SetTime_Step(geometry_fine, solver_container_fine, config, iMesh, config->GetTimeIter());
+          }
+
+          Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep,
+                            RunTime_EqSystem);
+
+          Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
+
+          solver_fine->Postprocessing(geometry_fine, solver_container_fine, config, iMesh);
+
+          continue;
+        }
+
+        
+        /*========================== SEMI_IMPLICIT split mode ==========================*/
+        /*Stadio A: chimica/vib implicito -> U*  
+          Stadio B: conv/diff esplicito su U* -> U^{k+1} */
+
+        /*--- Stadio A: chem/vib ---*/
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_CHEM_VIB);)
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_IMPLICIT);)
+
+        solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem,
+                                   false);
 
         if (iRKStep == 0) {
+          
           solver_fine->Set_OldSolution();
 
           if (classical_rk4) solver_fine->Set_NewSolution();
 
-          solver_fine->SetTime_Step(geometry_fine, solver_container_fine, config, iMesh,  config->GetTimeIter());
+          solver_fine->SetTime_Step(geometry_fine, solver_container_fine, config, iMesh, config->GetTimeIter());
         }
 
-        Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep, RunTime_EqSystem);
+        /* Space_Integration stage-aware: solo chem+vib */
+        Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep,
+                          RunTime_EqSystem);
 
+        /* Aggiornamento implicito -> U* */
         Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
 
-        solver_fine->Postprocessing(geometry_fine, solver_container_fine, config, iMesh);
+        /* Riuso della stessa matrice dei residui */
+        solver_fine->LinSysRes.SetValZero();
 
+        /*--- Stadio B: transport (conv/diff) usando U* ---*/
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_TRANSPORT);)
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(EULER_EXPLICIT);)
+
+        /* Ricalcolo primitive/gradienti su U* */
+        solver_fine->Preprocessing(geometry_fine, solver_container_fine, config, iMesh, iRKStep, RunTime_EqSystem,
+                                   false);
+
+        /* Space_Integration stage-aware: solo conv/diff (+ BC coerenti) */
+        Space_Integration(geometry_fine, solver_container_fine, numerics_fine, config, iMesh, iRKStep,
+                          RunTime_EqSystem);
+
+        /* Aggiornamento esplicito -> soluzione finale */
+        Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
+
+        /* Ripristino stato runtime */
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetSemiImplicitStage(SPLIT_STAGE_NONE);)
+        SU2_OMP_SAFE_GLOBAL_ACCESS(config->SetKind_TimeIntScheme(SEMI_IMPLICIT);)
+
+        /* Postprocessing una sola volta, sulla soluzione finale */
+        solver_fine->Postprocessing(geometry_fine, solver_container_fine, config, iMesh);
       }
     }
   }
-
 }
 
 void CMultiGridIntegration::GetProlongated_Correction(unsigned short RunTime_EqSystem, CSolver *sol_fine, CSolver *sol_coarse,

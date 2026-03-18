@@ -1550,7 +1550,8 @@ enum ENUM_TIME_INT {
   EULER_EXPLICIT = 2,         /*!< \brief Explicit Euler time integration definition. */
   EULER_IMPLICIT = 3,         /*!< \brief Implicit Euler time integration definition. */
   CLASSICAL_RK4_EXPLICIT = 4, /*!< \brief Classical RK4 time integration definition. */
-  ADER_DG = 5                 /*!< \brief ADER-DG time integration definition. */
+  ADER_DG = 5,                /*!< \brief ADER-DG time integration definition. */
+  SEMI_IMPLICIT = 6           /*!< \brief SEMI IMPLICIT time integration definition. */
 };
 static const MapType<std::string, ENUM_TIME_INT> Time_Int_Map = {
   MakePair("RUNGE-KUTTA_EXPLICIT", RUNGE_KUTTA_EXPLICIT)
@@ -1558,6 +1559,16 @@ static const MapType<std::string, ENUM_TIME_INT> Time_Int_Map = {
   MakePair("EULER_IMPLICIT", EULER_IMPLICIT)
   MakePair("CLASSICAL_RK4_EXPLICIT", CLASSICAL_RK4_EXPLICIT)
   MakePair("ADER_DG", ADER_DG)
+  MakePair("SEMI_IMPLICIT", SEMI_IMPLICIT)
+};
+
+/*!
+ * \brief Type of pseudo-time stage used for splitting SEMI_IMPLICIT  
+ */
+enum ENUM_SEMI_IMPLICIT_STAGE {
+  SPLIT_STAGE_NONE = 0,       /*!< \brief Normal execution definition. */
+  SPLIT_STAGE_CHEM_VIB = 1,   /*!< \brief Chemical and Vibrational execution definition. */
+  SPLIT_STAGE_TRANSPORT = 2   /*!< \brief Transport execution definition. */
 };
 
 /*!

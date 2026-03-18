@@ -68,6 +68,9 @@ CSource_NEMO::~CSource_NEMO() {
 
 CNumerics::ResidualType<> CSource_NEMO::ComputeChemistry(const CConfig *config) {
 
+  const auto time_scheme = static_cast<ENUM_TIME_INT>(config->GetKind_TimeIntScheme());
+  const bool implicit_chem_vib = (time_scheme == EULER_IMPLICIT);
+
   /*--- Nonequilibrium chemistry ---*/
   vector<su2double> rhos;
   rhos.resize(nSpecies,0.0);
@@ -76,7 +79,7 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeChemistry(const CConfig *config) 
   for (auto iVar = 0ul; iVar < nVar; iVar++)
     residual[iVar] = 0.0;
 
-  if (implicit)
+  if (implicit_chem_vib)
     for (auto iVar = 0ul; iVar < nVar; iVar++)
       for (auto jVar = 0ul; jVar < nVar; jVar++)
         jacobian[iVar][jVar] = 0.0;
@@ -91,13 +94,13 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeChemistry(const CConfig *config) 
   fluidmodel->SetTDStateRhosTTv(rhos, T, Tve);
 
   /*---Compute Prodcution/destruction terms ---*/
-  const auto& ws = fluidmodel->ComputeNetProductionRates(implicit, V_i, eve_i, Cvve_i,
+  const auto& ws = fluidmodel->ComputeNetProductionRates(implicit_chem_vib, V_i, eve_i, Cvve_i,
                                                          dTdU_i, dTvedU_i, jacobian);
 
   for (auto iSpecies = 0ul; iSpecies < nSpecies; iSpecies++){
     residual[iSpecies] = ws[iSpecies] * Volume;}
 
-  if (implicit) {
+  if (implicit_chem_vib) {
     for (auto iVar = 0ul; iVar<nVar; iVar++) {
       for (auto jVar = 0ul; jVar<nVar; jVar++) {
         jacobian[iVar][jVar] *= Volume;
@@ -116,6 +119,8 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeVibRelaxation(const CConfig *conf
   // Note: Landau-Teller formulation
   // Note: Millikan & White relaxation time (requires P in Atm.)
   // Note: Park limiting cross section
+  const auto time_scheme = static_cast<ENUM_TIME_INT>(config->GetKind_TimeIntScheme());
+  const bool implicit_chem_vib = (time_scheme == EULER_IMPLICIT);
   const su2double res_min = -1E6;
   const su2double res_max = 1E6;
 
@@ -126,7 +131,7 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeVibRelaxation(const CConfig *conf
   for (auto iVar = 0ul; iVar < nVar; iVar++) {
     residual[iVar] = 0.0;
   }
-  if (implicit) {
+  if (implicit_chem_vib) {
     for (auto iVar = 0ul; iVar < nVar; iVar++)
       for (auto jVar = 0ul; jVar < nVar; jVar++)
         jacobian[iVar][jVar] = 0.0;
@@ -143,14 +148,14 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeVibRelaxation(const CConfig *conf
 
   /*--- Compute residual and jacobians ---*/
   const su2double VTterm = fluidmodel -> ComputeEveSourceTerm();
-  if (implicit) {
+  if (implicit_chem_vib) {
     fluidmodel->GetEveSourceTermJacobian(V_i, eve_i, Cvve_i, dTdU_i,
                                          dTvedU_i, jacobian);
   }
 
   residual[nSpecies+nDim+1] = VTterm * Volume;
 
-  if (implicit) {
+  if (implicit_chem_vib) {
     for (auto iVar = 0ul; iVar<nVar; iVar++) {
       for (auto jVar = 0ul; jVar<nVar; jVar++) {
         jacobian[iVar][jVar] *= Volume;

@@ -127,8 +127,9 @@ CNEMOEulerSolver::CNEMOEulerSolver(CGeometry *geometry, CConfig *config,
 
   Allocate(*config);
 
-  /*--- Allocate Jacobians for implicit time-stepping ---*/
-  if (config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT) {
+  /*--- Allocate Jacobians for all flow schemes that include an implicit stage. ---*/
+  if ((config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT) ||
+      (config->GetKind_TimeIntScheme_Flow() == SEMI_IMPLICIT)) {
 
     /*--- Jacobians and vector  structures for implicit computations ---*/
     if (rank == MASTER_NODE) cout << "Initialize Jacobian structure (" << description << "). MG level: " << iMesh <<"." << endl;
@@ -751,6 +752,17 @@ void CNEMOEulerSolver::Source_Residual(CGeometry *geometry, CSolver **solver_con
   const bool viscous    = config->GetViscous();
   const bool rans       = (config->GetKind_Turb_Model() != TURB_MODEL::NONE);
 
+  const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(config->GetSemiImplicitStage());
+  const bool split_mode = config->GetFlowSemiImplicit() && (config->GetKind_FluidModel() == MUTATIONPP) &&
+                          (split_stage != SPLIT_STAGE_NONE);
+  const bool chem_vib_stage  = split_mode && (split_stage == SPLIT_STAGE_CHEM_VIB);
+  const bool transport_stage = split_mode && (split_stage == SPLIT_STAGE_TRANSPORT);
+
+  /* In standard mode (no split stage), execute all sources as usual. */
+  const bool do_chem_vib_sources      = (!split_mode) || chem_vib_stage;
+  const bool do_transport_only_sources = (!split_mode) || transport_stage;
+
+
   CNumerics* numerics = numerics_container[SOURCE_FIRST_TERM];
 
   /*--- Initialize the error counter ---*/
@@ -789,44 +801,47 @@ void CNEMOEulerSolver::Source_Residual(CGeometry *geometry, CSolver **solver_con
 
     /*--- Compute finite rate chemistry ---*/
 
-    if(!monoatomic){
-      if(!frozen){
-        /*--- Compute the non-equilibrium chemistry ---*/
-        auto residual = numerics->ComputeChemistry(config);
+    if (do_chem_vib_sources) {
+      if (!monoatomic) {
+        if (!frozen) {
+          /*--- Compute the non-equilibrium chemistry ---*/
+          auto residual = numerics->ComputeChemistry(config);
 
-        /*--- Check for errors before applying source to the linear system ---*/
-        err = CNumerics::CheckResidualNaNs(implicit, nVar, residual);
+          /*--- Check for errors before applying source to the linear system ---*/
+          err = CNumerics::CheckResidualNaNs(implicit, nVar, residual);
 
-        /*--- Apply the chemical sources to the linear system ---*/
-        if (!err) {
-          LinSysRes.SubtractBlock(iPoint, residual);
-          if (implicit)
-            Jacobian.SubtractBlock2Diag(iPoint, residual.jacobian_i);
-        } else
-          eChm_local++;
+          /*--- Apply the chemical sources to the linear system ---*/
+          if (!err) {
+            LinSysRes.SubtractBlock(iPoint, residual);
+            if (implicit) Jacobian.SubtractBlock2Diag(iPoint, residual.jacobian_i);
+          } else
+            eChm_local++;
+        }
       }
     }
 
     /*--- Compute vibrational energy relaxation ---*/
     /// NOTE: Jacobians don't account for relaxation time derivatives
 
-    if (!monoatomic){
-      auto residual = numerics->ComputeVibRelaxation(config);
+    if (do_chem_vib_sources) {
+      if (!monoatomic) {
+        auto residual = numerics->ComputeVibRelaxation(config);
 
-      /*--- Check for errors before applying source to the linear system ---*/
-      err = CNumerics::CheckResidualNaNs(implicit, nVar, residual);
+        /*--- Check for errors before applying source to the linear system ---*/
+        err = CNumerics::CheckResidualNaNs(implicit, nVar, residual);
 
-      /*--- Apply the vibrational relaxation terms to the linear system ---*/
-      if (!err) {
-        LinSysRes.SubtractBlock(iPoint, residual);
-        if (implicit)
-          Jacobian.SubtractBlock2Diag(iPoint, residual.jacobian_i);
-      } else
-        eVib_local++;
+        /*--- Apply the vibrational relaxation terms to the linear system ---*/
+        if (!err) {
+          LinSysRes.SubtractBlock(iPoint, residual);
+          if (implicit) Jacobian.SubtractBlock2Diag(iPoint, residual.jacobian_i);
+        } else
+          eVib_local++;
+      }
     }
 
     /*--- Compute axisymmetric source terms (if needed) ---*/
-    if (axisymm) {
+    
+    if (do_transport_only_sources && axisymm) {
 
       /*--- If necessary, set variables needed for viscous computation ---*/
       if (viscous) {

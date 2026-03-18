@@ -102,6 +102,13 @@ public:
   su2double ComputeEveSourceTerm() final;
 
   /*!
+   * \brief Compute vibrational energy source term jacobian.
+   */
+  void GetEveSourceTermJacobian(const su2double *V, const su2double *eve, const su2double *cvve,
+                                const su2double *dTdU, const su2double* dTvedU,
+                                su2double **val_jacobian) final;
+
+  /*!
    * \brief Compute species enthalpies.
    */
   vector<su2double>& ComputeSpeciesEnthalpy(su2double val_T, su2double val_Tve, su2double *val_eves) final;

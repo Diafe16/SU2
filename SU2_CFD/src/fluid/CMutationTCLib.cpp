@@ -28,6 +28,8 @@
 #if defined(HAVE_MPP) && !defined(CODI_REVERSE_TYPE) && !defined(CODI_FORWARD_TYPE)
 
 #include "../../include/fluid/CMutationTCLib.hpp"
+#include <algorithm>
+#include <cmath>
 
 CMutationTCLib::CMutationTCLib(const CConfig* config, unsigned short val_nDim): CNEMOGas(config, val_nDim){
 
@@ -51,6 +53,7 @@ CMutationTCLib::CMutationTCLib(const CConfig* config, unsigned short val_nDim): 
     transport_model = "Chapmann-Enskog_LDLT";
 
   opt.setStateModel("ChemNonEqTTv");
+  opt.setThermodynamicDatabase("RRHO");
   if (frozen) opt.setMechanism("none");
   opt.setViscosityAlgorithm(transport_model);
   opt.setThermalConductivityAlgorithm(transport_model);
@@ -166,7 +169,76 @@ vector<su2double>& CMutationTCLib::ComputeNetProductionRates(bool implicit, cons
                                                const su2double* cvve, const su2double* dTdU, const su2double* dTvedU,
                                                su2double **val_jacobian){
 
+  (void)V;
+  (void)eve;
+  (void)cvve;
+
   mix->netProductionRates(ws.data());
+
+  if (!implicit || (val_jacobian == nullptr)) {
+    return ws;
+  }
+
+  const auto base_rhos = rhos;
+  const su2double base_T = T;
+  const su2double base_Tve = Tve;
+  const unsigned short nVar = nSpecies + nDim + 2;
+
+  vector<su2double> dwdRho(nSpecies * nSpecies, 0.0);
+  vector<su2double> dwdT(nSpecies, 0.0);
+  vector<su2double> dwdTve(nSpecies, 0.0);
+  vector<su2double> wdot_plus(nSpecies, 0.0);
+  vector<su2double> wdot_minus(nSpecies, 0.0);
+
+  auto evalWdot = [&](const vector<su2double>& eval_rhos, su2double eval_T, su2double eval_Tve,
+                      vector<su2double>& out) {
+    auto state_rhos = eval_rhos;
+    SetTDStateRhosTTv(state_rhos, eval_T, eval_Tve);
+    mix->netProductionRates(out.data());
+  };
+
+  mix->jacobianRho(dwdRho.data());
+
+  const su2double hT = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_T)));
+  if (base_T > hT) {
+    evalWdot(base_rhos, base_T + hT, base_Tve, wdot_plus);
+    evalWdot(base_rhos, base_T - hT, base_Tve, wdot_minus);
+    for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+      dwdT[iSpecies] = (wdot_plus[iSpecies] - wdot_minus[iSpecies]) / (2.0 * hT);
+    }
+  } else {
+    evalWdot(base_rhos, base_T + hT, base_Tve, wdot_plus);
+    for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+      dwdT[iSpecies] = (wdot_plus[iSpecies] - ws[iSpecies]) / hT;
+    }
+  }
+
+  const su2double hTve = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_Tve)));
+  if (base_Tve > hTve) {
+    evalWdot(base_rhos, base_T, base_Tve + hTve, wdot_plus);
+    evalWdot(base_rhos, base_T, base_Tve - hTve, wdot_minus);
+    for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+      dwdTve[iSpecies] = (wdot_plus[iSpecies] - wdot_minus[iSpecies]) / (2.0 * hTve);
+    }
+  } else {
+    evalWdot(base_rhos, base_T, base_Tve + hTve, wdot_plus);
+    for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+      dwdTve[iSpecies] = (wdot_plus[iSpecies] - ws[iSpecies]) / hTve;
+    }
+  }
+
+  for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+    for (auto iVar = 0ul; iVar < nVar; ++iVar) {
+      su2double jac = dwdT[iSpecies] * dTdU[iVar] + dwdTve[iSpecies] * dTvedU[iVar];
+      if (iVar < nSpecies) {
+        jac += dwdRho[iSpecies * nSpecies + iVar];
+      }
+      val_jacobian[iSpecies][iVar] += jac;
+    }
+  }
+
+  auto restore_rhos = base_rhos;
+  SetTDStateRhosTTv(restore_rhos, base_T, base_Tve);
 
   return ws;
 }
@@ -178,6 +250,86 @@ su2double CMutationTCLib::ComputeEveSourceTerm(){
   omega = omega_vec[0];
 
   return omega;
+}
+
+void CMutationTCLib::GetEveSourceTermJacobian(const su2double *V, const su2double *eve, const su2double *cvve,
+                                              const su2double *dTdU, const su2double* dTvedU,
+                                              su2double **val_jacobian) {
+
+  (void)V;
+  (void)eve;
+  (void)cvve;
+
+  if (val_jacobian == nullptr) {
+    return;
+  }
+
+  const auto base_rhos = rhos;
+  const su2double base_T = T;
+  const su2double base_Tve = Tve;
+  const unsigned short nEve = nSpecies + nDim + 1;
+  const unsigned short nVar = nSpecies + nDim + 2;
+
+  vector<su2double> domegaDrho(nSpecies, 0.0);
+
+  auto evalOmega = [&](const vector<su2double>& eval_rhos, su2double eval_T, su2double eval_Tve) {
+    auto state_rhos = eval_rhos;
+    SetTDStateRhosTTv(state_rhos, eval_T, eval_Tve);
+    mix->energyTransferSource(omega_vec.data());
+    return omega_vec[0];
+  };
+
+  const su2double base_omega = evalOmega(base_rhos, base_T, base_Tve);
+
+  for (auto iSpecies = 0ul; iSpecies < nSpecies; ++iSpecies) {
+    const su2double rhoi = base_rhos[iSpecies];
+    const su2double hRho = std::max(1.0e-12, 1.0e-6 * std::max(1.0, std::fabs(rhoi)));
+    vector<su2double> rho_plus = base_rhos;
+    rho_plus[iSpecies] = rhoi + hRho;
+    const su2double omega_plus = evalOmega(rho_plus, base_T, base_Tve);
+
+    if (rhoi > hRho) {
+      vector<su2double> rho_minus = base_rhos;
+      rho_minus[iSpecies] = rhoi - hRho;
+      const su2double omega_minus = evalOmega(rho_minus, base_T, base_Tve);
+      domegaDrho[iSpecies] = (omega_plus - omega_minus) / (2.0 * hRho);
+    } else {
+      domegaDrho[iSpecies] = (omega_plus - base_omega) / hRho;
+    }
+  }
+
+  const su2double hT = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_T)));
+  su2double domegaDT = 0.0;
+  if (base_T > hT) {
+    const su2double omega_plus = evalOmega(base_rhos, base_T + hT, base_Tve);
+    const su2double omega_minus = evalOmega(base_rhos, base_T - hT, base_Tve);
+    domegaDT = (omega_plus - omega_minus) / (2.0 * hT);
+  } else {
+    const su2double omega_plus = evalOmega(base_rhos, base_T + hT, base_Tve);
+    domegaDT = (omega_plus - base_omega) / hT;
+  }
+
+  const su2double hTve = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_Tve)));
+  su2double domegaDTve = 0.0;
+  if (base_Tve > hTve) {
+    const su2double omega_plus = evalOmega(base_rhos, base_T, base_Tve + hTve);
+    const su2double omega_minus = evalOmega(base_rhos, base_T, base_Tve - hTve);
+    domegaDTve = (omega_plus - omega_minus) / (2.0 * hTve);
+  } else {
+    const su2double omega_plus = evalOmega(base_rhos, base_T, base_Tve + hTve);
+    domegaDTve = (omega_plus - base_omega) / hTve;
+  }
+
+  for (auto iVar = 0ul; iVar < nVar; ++iVar) {
+    su2double jac = domegaDT * dTdU[iVar] + domegaDTve * dTvedU[iVar];
+    if (iVar < nSpecies) {
+      jac += domegaDrho[iVar];
+    }
+    val_jacobian[nEve][iVar] += jac;
+  }
+
+  auto restore_rhos = base_rhos;
+  SetTDStateRhosTTv(restore_rhos, base_T, base_Tve);
 }
 
 vector<su2double>& CMutationTCLib::ComputeSpeciesEnthalpy(su2double val_T, su2double val_Tve, su2double *val_eves){

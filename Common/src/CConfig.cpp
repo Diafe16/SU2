@@ -1106,6 +1106,8 @@ void CConfig::SetPointersNull() {
 
   Kind_TimeNumScheme = EULER_IMPLICIT;
 
+  SemiImplicitStage = ENUM_SEMI_IMPLICIT_STAGE::SPLIT_STAGE_NONE;
+
 }
 
 void CConfig::SetConfig_Options() {
@@ -7347,6 +7349,51 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
           }
           cout << "Convergence criteria of the linear solver: "<< Linear_Solver_Error <<"."<< endl;
           cout << "Max number of linear iterations: "<< Linear_Solver_Iter <<"."<< endl;
+          break;
+        case SEMI_IMPLICIT:
+          cout << "Semi-implicit method for the flow equations." << endl;
+          cout << "Split step: chem/vib implicit, transport explicit." << endl;
+
+          if ((Kind_Solver != MAIN_SOLVER::NEMO_EULER) && (Kind_Solver != MAIN_SOLVER::NEMO_NAVIER_STOKES)) {
+            SU2_MPI::Error("SEMI_IMPLICIT is currently implemented only for NEMO solvers.", CURRENT_FUNCTION);
+          }
+          if (Kind_FluidModel != MUTATIONPP) {
+            SU2_MPI::Error("SEMI_IMPLICIT requires FLUID_MODEL=MUTATIONPP.", CURRENT_FUNCTION);
+          }
+
+          switch (Kind_Linear_Solver) {
+            case BCGSTAB:
+            case FGMRES:
+            case RESTARTED_FGMRES:
+              if (Kind_Linear_Solver == BCGSTAB) {
+                cout << "BCGSTAB is used for solving the linear system." << endl;
+              } else {
+                const std::string name = Kind_Linear_Solver == FGCRODR ? "FGCRODR" : "FGMRES";
+                if (Kind_Linear_Solver_Inner == LINEAR_SOLVER_INNER::BCGSTAB){
+                  cout << "Nested " << name << " (with inner BiCGSTAB) is used for solving the linear system." << endl;
+                } else {
+                  cout << name << " is used for solving the linear system." << endl;
+                }
+              }
+              switch (Kind_Linear_Solver_Prec) {
+                case ILU: cout << "Using a ILU("<< Linear_Solver_ILU_n <<") preconditioning."<< endl; break;
+                case LINELET: cout << "Using a linelet preconditioning."<< endl; break;
+                case LU_SGS:  cout << "Using a LU-SGS preconditioning."<< endl; break;
+                case JACOBI:  cout << "Using a Jacobi preconditioning."<< endl; break;
+              }
+              break;
+            case SMOOTHER:
+              switch (Kind_Linear_Solver_Prec) {
+                case ILU:     cout << "A ILU(" << Linear_Solver_ILU_n << ")"; break;
+                case LINELET: cout << "A Linelet"; break;
+                case LU_SGS:  cout << "A LU-SGS"; break;
+                case JACOBI:  cout << "A Jacobi"; break;
+              }
+              cout << " method is used for smoothing the linear system." << endl;
+              break;
+          }
+          cout << "Convergence criteria of the linear solver: " << Linear_Solver_Error << "." << endl;
+          cout << "Max number of linear iterations: " << Linear_Solver_Iter << "." << endl;
           break;
         case CLASSICAL_RK4_EXPLICIT:
           cout << "Classical RK4 explicit method for the flow equations." << endl;

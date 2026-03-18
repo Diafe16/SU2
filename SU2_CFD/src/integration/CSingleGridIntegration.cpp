@@ -48,33 +48,70 @@ void CSingleGridIntegration::SingleGrid_Iteration(CGeometry ****geometry, CSolve
   CGeometry* geometry_fine = geometry[iZone][iInst][FinestMesh];
   CSolver** solvers_fine = solver_container[iZone][iInst][FinestMesh];
 
-  /*--- Preprocessing ---*/
+  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config[iZone]->GetFlowSemiImplicit() &&
+                                  (config[iZone]->GetKind_FluidModel() == MUTATIONPP);
 
-  solvers_fine[Solver_Position]->Preprocessing(geometry_fine, solvers_fine, config[iZone],
-                                               FinestMesh, 0, RunTime_EqSystem, false);
+  if (!semi_implicit_flow) {
 
-  /*--- Set the old solution ---*/
+    /*--- Preprocessing ---*/
+    solvers_fine[Solver_Position]->Preprocessing(geometry_fine, solvers_fine, config[iZone],
+                                                 FinestMesh, 0, RunTime_EqSystem, false);
 
-  solvers_fine[Solver_Position]->Set_OldSolution();
+    /*--- Set the old solution ---*/
+    solvers_fine[Solver_Position]->Set_OldSolution();
 
-  /*--- Time step evaluation ---*/
+    /*--- Time step evaluation ---*/
+    solvers_fine[Solver_Position]->SetTime_Step(geometry_fine, solvers_fine, config[iZone],
+                                                FinestMesh, config[iZone]->GetTimeIter());
 
-  solvers_fine[Solver_Position]->SetTime_Step(geometry_fine, solvers_fine, config[iZone],
-                                              FinestMesh, config[iZone]->GetTimeIter());
+    /*--- Space integration ---*/
+    Space_Integration(geometry_fine, solvers_fine,
+                      numerics_container[iZone][iInst][FinestMesh][Solver_Position],
+                      config[iZone], FinestMesh, NO_RK_ITER, RunTime_EqSystem);
 
-  /*--- Space integration ---*/
+    /*--- Time integration ---*/
+    Time_Integration(geometry_fine, solvers_fine, config[iZone], NO_RK_ITER, RunTime_EqSystem);
 
-  Space_Integration(geometry_fine, solvers_fine,
-                    numerics_container[iZone][iInst][FinestMesh][Solver_Position],
-                    config[iZone], FinestMesh, NO_RK_ITER, RunTime_EqSystem);
+    /*--- Postprocessing ---*/
+    solvers_fine[Solver_Position]->Postprocessing(geometry_fine, solvers_fine, config[iZone], FinestMesh);
 
-  /*--- Time integration ---*/
+  } else {
 
-  Time_Integration(geometry_fine, solvers_fine, config[iZone], NO_RK_ITER, RunTime_EqSystem);
+    /*--- Stage A: chemistry/vibrational source residuals (implicit) ---*/
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetSemiImplicitStage(SPLIT_STAGE_CHEM_VIB);)
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetKind_TimeIntScheme(EULER_IMPLICIT);)
 
-  /*--- Postprocessing ---*/
+    solvers_fine[Solver_Position]->Preprocessing(geometry_fine, solvers_fine, config[iZone],
+                                                 FinestMesh, 0, RunTime_EqSystem, false);
+    solvers_fine[Solver_Position]->Set_OldSolution();
+    solvers_fine[Solver_Position]->SetTime_Step(geometry_fine, solvers_fine, config[iZone],
+                                                FinestMesh, config[iZone]->GetTimeIter());
 
-  solvers_fine[Solver_Position]->Postprocessing(geometry_fine, solvers_fine, config[iZone], FinestMesh);
+    Space_Integration(geometry_fine, solvers_fine,
+                      numerics_container[iZone][iInst][FinestMesh][Solver_Position],
+                      config[iZone], FinestMesh, NO_RK_ITER, RunTime_EqSystem);
+    Time_Integration(geometry_fine, solvers_fine, config[iZone], NO_RK_ITER, RunTime_EqSystem);
+
+    /*--- Reuse the same linear-system residual vector for stage B. ---*/
+    solvers_fine[Solver_Position]->LinSysRes.SetValZero();
+
+    /*--- Stage B: convective/diffusive residuals (explicit) on U* ---*/
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetSemiImplicitStage(SPLIT_STAGE_TRANSPORT);)
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetKind_TimeIntScheme(EULER_EXPLICIT);)
+
+    solvers_fine[Solver_Position]->Preprocessing(geometry_fine, solvers_fine, config[iZone],
+                                                 FinestMesh, 0, RunTime_EqSystem, false);
+
+    Space_Integration(geometry_fine, solvers_fine,
+                      numerics_container[iZone][iInst][FinestMesh][Solver_Position],
+                      config[iZone], FinestMesh, NO_RK_ITER, RunTime_EqSystem);
+    Time_Integration(geometry_fine, solvers_fine, config[iZone], NO_RK_ITER, RunTime_EqSystem);
+
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetSemiImplicitStage(SPLIT_STAGE_NONE);)
+    SU2_OMP_SAFE_GLOBAL_ACCESS(config[iZone]->SetKind_TimeIntScheme(SEMI_IMPLICIT);)
+
+    solvers_fine[Solver_Position]->Postprocessing(geometry_fine, solvers_fine, config[iZone], FinestMesh);
+  }
 
   if (RunTime_EqSystem == RUNTIME_HEAT_SYS) {
     SU2_OMP_SAFE_GLOBAL_ACCESS(solvers_fine[HEAT_SOL]->Heat_Fluxes(geometry_fine, solvers_fine, config[iZone]);)

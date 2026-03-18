@@ -110,3 +110,13 @@ ninja-win.zip
 ninja.exe
 .gitignore
 Docs/html
+
+
+build/
+bin/
+*.o
+*.a
+*.so
+*.out
+*.pyc
+.vscode/
