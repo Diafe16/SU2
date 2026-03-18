@@ -103,6 +103,7 @@ CAvgGrad_NEMO::~CAvgGrad_NEMO() {
 }
 
 CNumerics::ResidualType<> CAvgGrad_NEMO::ComputeResidual(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Normalized normal vector ---*/
   Area = GeometryToolbox::Norm(nDim, Normal);
@@ -165,7 +166,7 @@ CNumerics::ResidualType<> CAvgGrad_NEMO::ComputeResidual(const CConfig *config) 
     Flux[iVar] = Proj_Flux_Tensor[iVar];
 
   /*--- Compute the implicit part ---*/
-  if (implicit) {
+  if (implicit_mode) {
 
   su2double dist_ij_2[MAXNDIM] = {0.0};
   GeometryToolbox::Distance(nDim, Coord_j, Coord_i, dist_ij_2);
@@ -194,8 +195,6 @@ CAvgGradCorrected_NEMO::CAvgGradCorrected_NEMO(unsigned short val_nDim,
                                                unsigned short val_nPrimVarGrad,
                                                CConfig *config) : CNEMONumerics(val_nDim, val_nVar, val_nPrimVar, val_nPrimVarGrad,
                                                           config) {
-
-  implicit = (config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT);
 
   /*--- Rename for convenience ---*/
   nDim         = val_nDim;
@@ -259,6 +258,7 @@ CAvgGradCorrected_NEMO::~CAvgGradCorrected_NEMO() {
 }
 
 CNumerics::ResidualType<> CAvgGradCorrected_NEMO::ComputeResidual(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Normalized normal vector ---*/
   Area = GeometryToolbox::Norm(nDim, Normal);
@@ -342,7 +342,7 @@ CNumerics::ResidualType<> CAvgGradCorrected_NEMO::ComputeResidual(const CConfig 
     Flux[iVar] = Proj_Flux_Tensor[iVar];
 
   /*--- Compute the implicit part ---*/
-  if (implicit) {
+  if (implicit_mode) {
     dist_ij = sqrt(dist_ij_2);
 
     for (auto iVar = 0ul; iVar < nVar; iVar++) {

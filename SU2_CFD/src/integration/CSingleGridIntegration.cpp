@@ -92,6 +92,10 @@ void CSingleGridIntegration::SingleGrid_Iteration(CGeometry ****geometry, CSolve
                       config[iZone], FinestMesh, NO_RK_ITER, RunTime_EqSystem);
     Time_Integration(geometry_fine, solvers_fine, config[iZone], NO_RK_ITER, RunTime_EqSystem);
 
+    /*--- Stage B explicit update is formed from Solution_Old, therefore
+          store U* as "old" right after the implicit chem/vib stage. ---*/
+    solvers_fine[Solver_Position]->Set_OldSolution();
+
     /*--- Reuse the same linear-system residual vector for stage B. ---*/
     solvers_fine[Solver_Position]->LinSysRes.SetValZero();
 

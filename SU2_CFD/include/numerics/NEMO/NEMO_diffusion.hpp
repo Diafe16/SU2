@@ -110,7 +110,6 @@ private:
   Mean_Thermal_Conductivity_ve, /*!< \brief Mean value of the vib-el. thermal conductivity. */
   *ProjFlux,                    /*!< \brief Projection of the viscous fluxes. */
   dist_ij;                      /*!< \brief Length of the edge and face. */
-  bool implicit;                /*!< \brief Implicit calculus. */
 
   su2double* Flux = nullptr;    /*!< \brief The flux / residual across the edge. */
 

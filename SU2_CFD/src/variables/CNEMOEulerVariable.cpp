@@ -42,7 +42,7 @@ CNEMOEulerVariable::CNEMOEulerVariable(su2double val_pressure,
                                        CNEMOGas *fluidmodel)
   : CFlowVariable(npoint, ndim, nvar, nvarprim, nvarprimgrad, config),
     indices(ndim, config->GetnSpecies()),
-    implicit(config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT) {
+    runtime_config(config) {
 
   unsigned short iDim, iSpecies;
 
@@ -140,12 +140,18 @@ void CNEMOEulerVariable::SetVelocity2(unsigned long iPoint) {
 bool CNEMOEulerVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidModel) {
 
   unsigned short iVar;
+  const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(runtime_config->GetSemiImplicitStage());
+  const bool implicit_mode = (runtime_config->GetKind_TimeIntScheme() == EULER_IMPLICIT) ||
+                             (runtime_config->GetFlowSemiImplicit() &&
+                              (runtime_config->GetKind_FluidModel() == MUTATIONPP) &&
+                              (split_stage == SPLIT_STAGE_CHEM_VIB));
 
   fluidmodel = static_cast<CNEMOGas*>(FluidModel);
 
   /*--- Convert conserved to primitive variables ---*/
   bool nonPhys = Cons2PrimVar(Solution[iPoint], Primitive[iPoint],
-                              dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint]);
+                              dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint],
+                              implicit_mode);
 
   /*--- Reset solution to previous one, if nonphys ---*/
   if (nonPhys) {
@@ -154,7 +160,8 @@ bool CNEMOEulerVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidMode
 
     /*--- Recompute Primitive from previous solution ---*/
     Cons2PrimVar(Solution[iPoint], Primitive[iPoint],
-                   dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint]);
+                   dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint],
+                   implicit_mode);
   }
 
   /*--- Set additional point quantities ---*/
@@ -168,7 +175,7 @@ bool CNEMOEulerVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidMode
 bool CNEMOEulerVariable::Cons2PrimVar(su2double *U, su2double *V,
                                       su2double *val_dPdU, su2double *val_dTdU,
                                       su2double *val_dTvedU, su2double *val_eves,
-                                      su2double *val_Cvves) {
+                                      su2double *val_Cvves, bool implicit_mode) {
 
   unsigned short iDim, iSpecies;
   su2double Tmin, Tmax, Tvemin, Tvemax;
@@ -261,7 +268,7 @@ bool CNEMOEulerVariable::Cons2PrimVar(su2double *U, su2double *V,
   }
 
   /*--- Partial derivatives of pressure and temperature ---*/
-  if(implicit){
+  if(implicit_mode){
     fluidmodel->ComputedPdU  (V, eves, val_dPdU  );
     fluidmodel->ComputedTdU  (V, val_dTdU );
     fluidmodel->ComputedTvedU(V, eves, val_dTvedU);

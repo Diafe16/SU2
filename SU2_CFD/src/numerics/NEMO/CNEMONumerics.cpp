@@ -52,8 +52,9 @@ CNEMONumerics::CNEMONumerics(unsigned short val_nDim, unsigned short val_nVar,
     LAM_VISC_INDEX  = nSpecies+nDim+8;
     EDDY_VISC_INDEX = nSpecies+nDim+9;
 
-    /*--- Read from CConfig ---*/
-    implicit   = (config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT);
+    /*--- Time scheme is selected at runtime in ComputeResidual methods
+          (required by split-stage SEMI_IMPLICIT integration). ---*/
+    implicit = false;
 
     ionization = config->GetIonization();
     if (ionization) { nHeavy = nSpecies-1; nEl = 1; }

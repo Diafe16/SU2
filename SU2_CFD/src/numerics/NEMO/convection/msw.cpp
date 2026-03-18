@@ -107,6 +107,7 @@ CUpwMSW_NEMO::~CUpwMSW_NEMO() {
 }
 
 CNumerics::ResidualType<> CUpwMSW_NEMO::ComputeResidual(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Set parameters in the numerical method ---*/
   const su2double alpha   = 5.0;
@@ -123,7 +124,7 @@ CNumerics::ResidualType<> CUpwMSW_NEMO::ComputeResidual(const CConfig *config) {
     Fc_i[iVar] = 0.0;
     Fc_j[iVar] = 0.0;
   }
-  if (implicit) {
+  if (implicit_mode) {
     for (auto iVar = 0ul; iVar < nVar; iVar++) {
       for (auto jVar = 0ul; jVar < nVar; jVar++) {
         Jacobian_i[iVar][jVar] = 0.0;
@@ -202,7 +203,7 @@ CNumerics::ResidualType<> CUpwMSW_NEMO::ComputeResidual(const CConfig *config) {
       for (auto kVar = 0ul; kVar < nVar; kVar++)
         Proj_ModJac_Tensor_i += P_Tensor[iVar][kVar]*Lambda_i[kVar]*invP_Tensor[kVar][jVar];
       Fc_i[iVar] += Proj_ModJac_Tensor_i*U_i[jVar]*Area;
-      if (implicit)
+      if (implicit_mode)
         Jacobian_i[iVar][jVar] += Proj_ModJac_Tensor_i*Area;
     }
   }
@@ -237,7 +238,7 @@ CNumerics::ResidualType<> CUpwMSW_NEMO::ComputeResidual(const CConfig *config) {
       for (auto kVar = 0ul; kVar < nVar; kVar++)
         Proj_ModJac_Tensor_j += P_Tensor[iVar][kVar]*Lambda_j[kVar]*invP_Tensor[kVar][jVar];
       Fc_j[iVar] += Proj_ModJac_Tensor_j*U_j[jVar]*Area;
-      if (implicit)
+      if (implicit_mode)
         Jacobian_j[iVar][jVar] += Proj_ModJac_Tensor_j*Area;
     }
   }

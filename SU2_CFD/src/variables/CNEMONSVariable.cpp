@@ -79,9 +79,15 @@ CNEMONSVariable::CNEMONSVariable(su2double val_pressure,
 bool CNEMONSVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidModel) {
 
   fluidmodel = static_cast<CNEMOGas*>(FluidModel);
+  const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(runtime_config->GetSemiImplicitStage());
+  const bool implicit_mode = (runtime_config->GetKind_TimeIntScheme() == EULER_IMPLICIT) ||
+                             (runtime_config->GetFlowSemiImplicit() &&
+                              (runtime_config->GetKind_FluidModel() == MUTATIONPP) &&
+                              (split_stage == SPLIT_STAGE_CHEM_VIB));
 
   /*--- Convert conserved to primitive variables ---*/
-  bool nonPhys = Cons2PrimVar(Solution[iPoint], Primitive[iPoint], dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint]);
+  bool nonPhys = Cons2PrimVar(Solution[iPoint], Primitive[iPoint], dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint],
+                              eves[iPoint], Cvves[iPoint], implicit_mode);
 
   /*--- Reset solution to previous one, if nonphys ---*/
   if (nonPhys) {
@@ -89,7 +95,8 @@ bool CNEMONSVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidModel) 
       Solution(iPoint,iVar) = Solution_Old(iPoint,iVar);
 
     /*--- Recompute Primitive from previous solution ---*/
-    Cons2PrimVar(Solution[iPoint], Primitive[iPoint], dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint], Cvves[iPoint]);
+    Cons2PrimVar(Solution[iPoint], Primitive[iPoint], dPdU[iPoint], dTdU[iPoint], dTvedU[iPoint], eves[iPoint],
+                 Cvves[iPoint], implicit_mode);
   }
 
   /*--- Set additional point quantities ---*/

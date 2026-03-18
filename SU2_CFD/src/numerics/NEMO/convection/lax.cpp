@@ -74,6 +74,7 @@ CCentLax_NEMO::~CCentLax_NEMO() {
 }
 
 CNumerics::ResidualType<> CCentLax_NEMO::ComputeResidual(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Calculate geometrical quantities ---*/
   Area = GeometryToolbox::Norm(nDim, Normal);
@@ -100,7 +101,7 @@ CNumerics::ResidualType<> CCentLax_NEMO::ComputeResidual(const CConfig *config) 
   GetInviscidProjFlux(MeanU, MeanV, Normal, ProjFlux);
 
   /*--- Jacobians of the inviscid flux, scale = 0.5 because val_res ~ 0.5*(fc_i+fc_j)*Normal ---*/
-  if (implicit) {
+  if (implicit_mode) {
     GetInviscidProjJac(MeanU, MeanV, MeandPdU, Normal, 0.5, Jacobian_i);
 
     for (auto iVar = 0ul; iVar < nVar; iVar++)
@@ -135,7 +136,7 @@ CNumerics::ResidualType<> CCentLax_NEMO::ComputeResidual(const CConfig *config) 
     Flux[iVar] = ProjFlux[iVar]+Epsilon_0*Diff_U[iVar]*StretchingFactor*MeanLambda;
   }
 
-  if (implicit) {
+  if (implicit_mode) {
 
     cte = Epsilon_0*StretchingFactor*MeanLambda;
 

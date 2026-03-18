@@ -90,6 +90,7 @@ CUpwRoe_NEMO::~CUpwRoe_NEMO() {
 }
 
 CNumerics::ResidualType<> CUpwRoe_NEMO::ComputeResidual(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Face area (norm or the normal vector) ---*/
   Area = GeometryToolbox::Norm(nDim, Normal);
@@ -167,7 +168,7 @@ CNumerics::ResidualType<> CUpwRoe_NEMO::ComputeResidual(const CConfig *config) {
 
   /*--- Calculate inviscid projected Jacobians ---*/
   // Note: Scaling value is 0.5 because inviscid flux is based on 0.5*(Fc_i+Fc_j)
-  if (implicit){
+  if (implicit_mode){
     GetInviscidProjJac(U_i, V_i, dPdU_i, Normal, 0.5, Jacobian_i);
     GetInviscidProjJac(U_j, V_j, dPdU_j, Normal, 0.5, Jacobian_j);
   }
@@ -187,7 +188,7 @@ CNumerics::ResidualType<> CUpwRoe_NEMO::ComputeResidual(const CConfig *config) {
         Proj_ModJac_Tensor_ij += P_Tensor[iVar][kVar]*Lambda[kVar]*invP_Tensor[kVar][jVar];
 
       Flux[iVar] -= 0.5*Proj_ModJac_Tensor_ij*Diff_U[jVar]*Area;
-      if (implicit){
+      if (implicit_mode){
         Jacobian_i[iVar][jVar] += 0.5*Proj_ModJac_Tensor_ij*Area;
         Jacobian_j[iVar][jVar] -= 0.5*Proj_ModJac_Tensor_ij*Area;
       }

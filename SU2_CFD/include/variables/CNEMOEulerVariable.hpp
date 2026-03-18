@@ -97,8 +97,8 @@ class CNEMOEulerVariable : public CFlowVariable {
   RHO_INDEX, H_INDEX, A_INDEX, RHOCVTR_INDEX, RHOCVVE_INDEX,
   LAM_VISC_INDEX, EDDY_VISC_INDEX, nSpecies;
 
-  su2double Tve_Freestream; /*!< \brief Freestream vib-el temperature. */
-  const bool implicit;      /*!< \brief Implicit flag. */
+  su2double Tve_Freestream;             /*!< \brief Freestream vib-el temperature. */
+  const CConfig* runtime_config = nullptr; /*!< \brief Runtime config pointer (used for split-stage time-scheme checks). */
 
  public:
   /*!
@@ -181,7 +181,7 @@ class CNEMOEulerVariable : public CFlowVariable {
   */
   bool Cons2PrimVar(su2double *U, su2double *V, su2double *dPdU,
                     su2double *dTdU, su2double *dTvedU, su2double *val_eves,
-                    su2double *val_Cvves);
+                    su2double *val_Cvves, bool implicit_mode);
 
   /*---------------------------------------*/
   /*---   Specific variable routines    ---*/

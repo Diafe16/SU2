@@ -36,8 +36,6 @@ CUpwAUSM_SLAU_Base_NEMO::CUpwAUSM_SLAU_Base_NEMO(unsigned short val_nDim, unsign
   if (config->GetDynamic_Grid() && (SU2_MPI::GetRank() == MASTER_NODE))
     cout << "WARNING: Grid velocities are NOT yet considered in AUSM-type schemes." << endl;
 
-  implicit = (config->GetKind_TimeIntScheme_Flow() == EULER_IMPLICIT);
-
   rhos_i = new su2double[nSpecies];
   rhos_j = new su2double[nSpecies];
 
@@ -372,6 +370,8 @@ void CUpwAUSM_SLAU_Base_NEMO::ComputeJacobian(su2double** val_Jacobian_i, su2dou
 }
 
 CNumerics::ResidualType<> CUpwAUSM_SLAU_Base_NEMO::ComputeResidual(const CConfig* config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
+
   /*--- Compute geometric quantities ---*/
   Area = GeometryToolbox::Norm(nDim, Normal);
 
@@ -438,7 +438,7 @@ CNumerics::ResidualType<> CUpwAUSM_SLAU_Base_NEMO::ComputeResidual(const CConfig
   for (auto iDim = 0ul; iDim < nDim; iDim++) Flux[nSpecies + iDim] += PressureFlux[iDim] * Area;
 
   /*--- If required, compute Jacobians (approximated using AUSM) ---*/
-  if (implicit) ComputeJacobian(Jacobian_i, Jacobian_j);
+  if (implicit_mode) ComputeJacobian(Jacobian_i, Jacobian_j);
 
   return ResidualType<>(Flux, Jacobian_i, Jacobian_j);
 }

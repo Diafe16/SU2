@@ -254,6 +254,9 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
       /* Time_Integration con EULER_IMPLICIT -> produce U* */
       Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
 
+      /* Stage B explicit update is computed from Solution_Old. Use U* as baseline. */
+      solver_fine->Set_OldSolution();
+
       /* Richiesta tua: riuso della stessa matrice dei residui */
       solver_fine->LinSysRes.SetValZero();
 
@@ -402,6 +405,9 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
 
         /* Aggiornamento implicito -> U* */
         Time_Integration(geometry_fine, solver_container_fine, config, iRKStep, RunTime_EqSystem);
+
+        /* Stage B explicit update is computed from Solution_Old. Use U* as baseline. */
+        solver_fine->Set_OldSolution();
 
         /* Riuso della stessa matrice dei residui */
         solver_fine->LinSysRes.SetValZero();

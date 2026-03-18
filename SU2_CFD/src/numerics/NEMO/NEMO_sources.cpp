@@ -173,6 +173,7 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeVibRelaxation(const CConfig *conf
 }
 
 CNumerics::ResidualType<> CSource_NEMO::ComputeAxisymmetric(const CConfig *config) {
+  const bool implicit_mode = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
 
   /*--- Rename for convenience ---*/
   const auto Ds = Diffusion_Coeff_i;
@@ -213,7 +214,7 @@ CNumerics::ResidualType<> CSource_NEMO::ComputeAxisymmetric(const CConfig *confi
   residual[nSpecies+3] = yinv*rhov*rhoEve/rho*Volume;
 
   /*---Compute Jacobian for inviscid axisym flow ---*/
-  if (implicit) {
+  if (implicit_mode) {
 
     /*--- Initialize matrices ---*/
     for (auto iVar = 0ul; iVar < nVar; iVar++)
