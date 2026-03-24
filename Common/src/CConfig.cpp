@@ -7350,15 +7350,17 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
           cout << "Convergence criteria of the linear solver: "<< Linear_Solver_Error <<"."<< endl;
           cout << "Max number of linear iterations: "<< Linear_Solver_Iter <<"."<< endl;
           break;
-        case SEMI_IMPLICIT:
+        case SEMI_IMPLICIT: {
           cout << "Semi-implicit method for the flow equations." << endl;
           cout << "Split step: chem/vib implicit, transport explicit." << endl;
 
           if ((Kind_Solver != MAIN_SOLVER::NEMO_EULER) && (Kind_Solver != MAIN_SOLVER::NEMO_NAVIER_STOKES)) {
             SU2_MPI::Error("SEMI_IMPLICIT is currently implemented only for NEMO solvers.", CURRENT_FUNCTION);
           }
-          if (Kind_FluidModel != MUTATIONPP) {
-            SU2_MPI::Error("SEMI_IMPLICIT requires FLUID_MODEL=MUTATIONPP.", CURRENT_FUNCTION);
+          const bool valid_noneq_model = (Kind_FluidModel == MUTATIONPP) || (Kind_FluidModel == SU2_NONEQ);
+          if (!valid_noneq_model) {
+            SU2_MPI::Error("SEMI_IMPLICIT requires FLUID_MODEL=MUTATIONPP or FLUID_MODEL=SU2_NONEQ.",
+                           CURRENT_FUNCTION);
           }
 
           switch (Kind_Linear_Solver) {
@@ -7395,6 +7397,7 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
           cout << "Convergence criteria of the linear solver: " << Linear_Solver_Error << "." << endl;
           cout << "Max number of linear iterations: " << Linear_Solver_Iter << "." << endl;
           break;
+        }
         case CLASSICAL_RK4_EXPLICIT:
           cout << "Classical RK4 explicit method for the flow equations." << endl;
           cout << "Number of steps: " << 4 << endl;

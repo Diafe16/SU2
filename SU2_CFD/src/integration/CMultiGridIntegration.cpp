@@ -142,8 +142,7 @@ void CMultiGridIntegration::MultiGrid_Cycle(CGeometry ****geometry,
 
   /* Runtime flag for the split SEMI_IMPLICIT mode. */
   const auto TimeIntScheme_Orig = static_cast<ENUM_TIME_INT>(config->GetKind_TimeIntScheme());
-  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config->GetFlowSemiImplicit() &&
-                                  (config->GetKind_FluidModel() == MUTATIONPP);
+  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config->GetFlowSemiImplicit();
   const bool classical_rk4 = (config->GetKind_TimeIntScheme() == CLASSICAL_RK4_EXPLICIT);
   
   /* Use implicit pre/post multigrid handling for both EULER_IMPLICIT and SEMI_IMPLICIT. */

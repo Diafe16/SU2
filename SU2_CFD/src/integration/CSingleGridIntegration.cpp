@@ -48,8 +48,7 @@ void CSingleGridIntegration::SingleGrid_Iteration(CGeometry ****geometry, CSolve
   CGeometry* geometry_fine = geometry[iZone][iInst][FinestMesh];
   CSolver** solvers_fine = solver_container[iZone][iInst][FinestMesh];
 
-  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config[iZone]->GetFlowSemiImplicit() &&
-                                  (config[iZone]->GetKind_FluidModel() == MUTATIONPP);
+  const bool semi_implicit_flow = (RunTime_EqSystem == RUNTIME_FLOW_SYS) && config[iZone]->GetFlowSemiImplicit();
 
   if (!semi_implicit_flow) {
 

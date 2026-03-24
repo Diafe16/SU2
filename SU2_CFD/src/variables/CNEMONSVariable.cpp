@@ -82,7 +82,6 @@ bool CNEMONSVariable::SetPrimVar(unsigned long iPoint, CFluidModel *FluidModel) 
   const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(runtime_config->GetSemiImplicitStage());
   const bool implicit_mode = (runtime_config->GetKind_TimeIntScheme() == EULER_IMPLICIT) ||
                              (runtime_config->GetFlowSemiImplicit() &&
-                              (runtime_config->GetKind_FluidModel() == MUTATIONPP) &&
                               (split_stage == SPLIT_STAGE_CHEM_VIB));
 
   /*--- Convert conserved to primitive variables ---*/

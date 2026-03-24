@@ -753,8 +753,7 @@ void CNEMOEulerSolver::Source_Residual(CGeometry *geometry, CSolver **solver_con
   const bool rans       = (config->GetKind_Turb_Model() != TURB_MODEL::NONE);
 
   const auto split_stage = static_cast<ENUM_SEMI_IMPLICIT_STAGE>(config->GetSemiImplicitStage());
-  const bool split_mode = config->GetFlowSemiImplicit() && (config->GetKind_FluidModel() == MUTATIONPP) &&
-                          (split_stage != SPLIT_STAGE_NONE);
+  const bool split_mode = config->GetFlowSemiImplicit() && (split_stage != SPLIT_STAGE_NONE);
   const bool chem_vib_stage  = split_mode && (split_stage == SPLIT_STAGE_CHEM_VIB);
   const bool transport_stage = split_mode && (split_stage == SPLIT_STAGE_TRANSPORT);
 
