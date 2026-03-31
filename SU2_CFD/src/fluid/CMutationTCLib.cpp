@@ -197,8 +197,12 @@ vector<su2double>& CMutationTCLib::ComputeNetProductionRates(bool implicit, cons
     mix->netProductionRates(out.data());
   };
 
+  //Evaluation of ∂ωi/∂ρj via finite-differences in ρ, 
+  //central if possible, else forward
   mix->jacobianRho(dwdRho.data());
 
+  //Evaluation of ∂ωi/∂T via finite-differences in T, 
+  //central if possible, else forward
   const su2double hT = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_T)));
   if (base_T > hT) {
     evalWdot(base_rhos, base_T + hT, base_Tve, wdot_plus);
@@ -213,6 +217,8 @@ vector<su2double>& CMutationTCLib::ComputeNetProductionRates(bool implicit, cons
     }
   }
 
+  //Evaluation of ∂ωi/∂Tve via finite-differences in T, 
+  //central if possible, else forward
   const su2double hTve = std::max(1.0e-4, 1.0e-6 * std::max(1.0, std::fabs(base_Tve)));
   if (base_Tve > hTve) {
     evalWdot(base_rhos, base_T, base_Tve + hTve, wdot_plus);
